@@ -1,8 +1,9 @@
 # Agent Pack — SDLC Pipeline for Claude Code
 
-Six [Claude Code subagent](https://docs.claude.com/en/docs/claude-code/sub-agents) definitions that
+Seven [Claude Code subagent](https://docs.claude.com/en/docs/claude-code/sub-agents) definitions that
 split a software change across the roles of a delivery team: product, architecture, code, tests,
-deployability, and an independent quality gate.
+deployability, and an independent quality gate — plus an `orchestrator` that drives them end to
+end as a state machine.
 
 Each agent is a single Markdown file with YAML frontmatter (`name`, `description`, `tools`,
 `model`) and a body that defines its **Description**, **Responsibilities**, **Constraints** and
@@ -21,6 +22,7 @@ settled law.
 | [`testing`](testing.md) | Automated verification: unit, integration, contract tests | Never weakens a test to go green; signs off OK / NOT OK |
 | [`implementation`](implementation.md) | Deployability: wiring, config, migrations, flags, rollout | No irreversible migrations; signs off OK / NOT OK |
 | [`qa`](qa.md) | Independent verification against the original criteria | Reports GO / NO-GO; never fixes the code, never merges |
+| [`orchestrator`](orchestrator.md) | Routing an intake through all six agents | Makes no decisions; follows a transition table and escalates to the human |
 
 ### Why Developer and Implementation are separate
 
@@ -64,6 +66,39 @@ three sign-offs are in:
 3. `qa` → **GO**
 
 No agent approves or merges the PR. The verdicts are reported; a human decides.
+
+---
+
+## The orchestrator
+
+`orchestrator` takes an intake (one ticket, a list of tickets, a project brief, a spec) and runs
+every resulting work item through the flow above as a **state machine**:
+
+```
+INTAKE -> SCOPING -> [GATE_SCOPE] -> DESIGN -> [GATE_PLAN] -> BUILD (step 1..n) -> TESTING
+       -> DEPLOYABILITY -> QA -> [GATE_MERGE] -> next work item | DONE
+
+NOT OK / NO-GO  -> BUILD (rework) -> TESTING -> DEPLOYABILITY -> QA   (max 3 cycles)
+[GATE_*]        =  human decides, via a question in the session
+anything unclear -> BLOCKED -> human picks where to resume
+```
+
+- **No agent decides on its own.** Transitions fire only on explicit signals from the agents'
+  output contracts (`Sign-off: OK / NOT OK`, `Verdict: GO / NO-GO`, blocking open questions,
+  build result). Scope, plan, waivers, outward git actions and the merge all go to a human gate.
+- **Bounded loops.** Scoping, design and rework loops are capped at 3 rounds, then `BLOCKED`.
+- **Run ledger.** Every transition, agent output and human answer is written to
+  `.claude/orchestrator/runs/<id>.md`, so a run can be audited or resumed.
+
+Subagents can't spawn subagents, so the orchestrator must run as the **main session agent**:
+
+```bash
+claude --agent orchestrator
+> Here are this sprint's tickets: US-17327, US-17410 (descriptions below) ...
+```
+
+Its `tools:` line uses `Agent(product-owner, architect, ...)` so it can only call the pack's own
+agents. Rename an agent and you must update that line too.
 
 ---
 
@@ -115,6 +150,8 @@ it directly:
 > have the architect plan this, then the developer implement step 1
 > run qa on the current diff
 ```
+
+Or hand the whole thing to the orchestrator with `claude --agent orchestrator` (see above).
 
 ---
 
