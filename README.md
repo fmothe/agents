@@ -3,7 +3,8 @@
 Seven [Claude Code subagent](https://docs.claude.com/en/docs/claude-code/sub-agents) definitions that
 split a software change across the roles of a delivery team: product, architecture, code, tests,
 deployability, and an independent quality gate — plus an `orchestrator` that drives them end to
-end as a state machine.
+end as a state machine. A separate, standalone [`arquetype`](arquetype.md) agent covers working
+inside existing and legacy codebases.
 
 Each agent is a single Markdown file with YAML frontmatter (`name`, `description`, `tools`,
 `model`) and a body that defines its **Description**, **Responsibilities**, **Constraints** and
@@ -99,6 +100,51 @@ claude --agent orchestrator
 
 Its `tools:` line uses `Agent(product-owner, architect, ...)` so it can only call the pack's own
 agents. Rename an agent and you must update that line too.
+
+---
+
+## Standalone: `arquetype`
+
+[`arquetype`](arquetype.md) is **not** part of the pipeline above, and the orchestrator never
+calls it. It is a single agent that works more like a skill. It is most useful when you drop it
+into a project that already exists, especially a legacy codebase with little documentation.
+
+It has two modes:
+
+**1. Analyze.** Scans the project and writes **`arquetype-memory.md`** at the repo root: stack and
+versions, build/run/test commands, directory map, architecture and layering, modules and
+packages, domain model, entry points (endpoints, consumers, jobs), integrations, config key
+names (never values), coding and test conventions, legacy hotspots, and a glossary. Every entry
+cites a real file. Later runs refresh only what changed since the recorded commit, and sections
+marked `<!-- manual -->` are left alone. Commit this file so the whole team shares the same
+reference.
+
+**2. Intake.** Takes a feature prompt, a ticket, a bug report, or any request about the project:
+
+1. Reads `arquetype-memory.md` (and runs Analyze first if it's missing).
+2. Finds where the change belongs and traces its impact on callers, contracts, DB, config and
+   tests. For bugs, it locates the root cause.
+3. **Stops and asks you** to approve, adjust or cancel. It shows the affected structure, the
+   list of files to create, modify or delete, the tests to add or update, and an impact and
+   risk analysis.
+4. Implements the change and shows what changed in each file as it goes. Small changes appear
+   as diffs. Large ones show the file name and 2–3 key points on what changed and why.
+5. Writes new unit tests or updates existing ones (including a regression test for bugs),
+   runs them, and reports the real result.
+6. Updates `arquetype-memory.md` if the change added modules, dependencies, entry points or
+   config.
+
+It never edits files outside the approved list without asking again, and it never commits or
+pushes unless you ask.
+
+Because it stops to ask you questions, run it as the main session agent:
+
+```bash
+claude --agent arquetype
+> analyze this project
+> intake: add a `status` filter to the orders list endpoint
+> intake: BUG-412 — invoices show the wrong currency for EU tenants
+```
 
 ---
 
